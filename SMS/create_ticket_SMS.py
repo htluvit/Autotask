@@ -56,7 +56,7 @@ class TicketSMS():
 
         createTicket.DueDateTime = datetime.now()
         createTicket.ServiceLevelAgreementID = 9
-        createTicket.Title = str(text[3])+": "+ str(text[6])
+        createTicket.Title = str(text[3])+": "+ str(text[6][:50])
         udf = self.autotaskCient.factory.create('UserDefinedField')
         udf.Name = 'Phone'
         udf.Value = text[3]
@@ -119,7 +119,7 @@ class TicketSMS():
         ticketNote.id = 0
 
         ticketNote.Title = "Customer replied at: " + str(text[1])
-        ticketNote.Description = str(text[6])
+        ticketNote.Description = str(text[6][:3000])
         ticketNote.TicketID = ticketID
         ticketNote.Publish = 2
         ticketNote.NoteType = 1
