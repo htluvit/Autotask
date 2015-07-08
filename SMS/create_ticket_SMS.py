@@ -12,6 +12,15 @@ class TicketSMS():
         self.mysqlClient = self.mysqlConnector.login()
         self.myCursor = self.mysqlClient.cursor()
 
+class TicketSMS():
+    def __init__(self):
+        self.autotaskConnector = AutotaskConnector()
+        self.autotaskCient = self.autotaskConnector.login()
+
+        self.mysqlConnector = MySQLConnector()
+        self.mysqlClient = self.mysqlConnector.login()
+        self.myCursor = self.mysqlClient.cursor()
+
     def _get_Text(self):
         query = ("select * from messagein where TicketNoteID is NULL;")
         self.myCursor.execute(query)
@@ -29,7 +38,6 @@ class TicketSMS():
                  '<field>Title<expression op="Contains">' + str(text[3]) + '</expression></field>' \
                  '<field>Source<expression op="equals">15</expression></field>' \
                  '<field>Status<expression op="NotEqual">5</expression></field>' \
-                 '<field>QueueID<expression op="equals">29683485</expression></field>'\
                  '</query></queryxml>'
 
         searchTicketQuery = self.autotaskCient.service.query(String)
@@ -94,10 +102,12 @@ class TicketSMS():
             updateTicket.Title = existingTicket['Title']
         if 'TicketType' in existingTicket and existingTicket['TicketType']:
             updateTicket.TicketType = existingTicket['TicketType']
+        if 'QueueID' in existingTicket and existingTicket['QueueID']:
+            updateTicket.QueueID = existingTicket['QueueID']
         updateTicket.DueDateTime = datetime.now() + timedelta(hours=1)
         updateTicket.Source = 15
         updateTicket.Status = 20
-        updateTicket.QueueID = 29683485
+        
         updateTicket.ServiceLevelAgreementID = 9
 
         updateTicketArray.Entity.append(updateTicket)
@@ -177,15 +187,12 @@ class TicketSMS():
                 print("Updating Database...")
                 self._updateDatabase(text, updatedTicketID, newTicketNoteID)
                 print("Text From "+text[3]+" Processed!")
-        print("Waiting...")
+        
         self.mysqlClient.commit()
         time.sleep(10)
 
 main = TicketSMS()
 while 1:
     main._process()
-
-
-
 
 
