@@ -1,4 +1,4 @@
-import time
+import mysql.connector, time
 from datetime import datetime, timedelta
 from freedom_config import *
 
