@@ -12,22 +12,34 @@ class TicketSMS():
         self.mysqlClient = self.mysqlConnector.login()
         self.myCursor = self.mysqlClient.cursor()
 
-    def _get_Text(self):
+    def _get_Incoming_Text(self):
         query = ("select * from messagein where TicketNoteID is NULL;")
         self.myCursor.execute(query)
         texts = []
         for id in reversed(list(self.myCursor)):
             texts.append(id)
         if len(texts) > 0:
+            print("****************************************************")
             print("New Text From " + texts[-1][3] + "! Processing..")
+            return texts[-1]
+
+    def _get_Outgoing_Text(self):
+        query = ("select id, SendTime, StatusCode, MessageTo, MessageFrom, TicketID, MessageText from messagelog where TicketID is NULL;")
+        self.myCursor.execute(query)
+        texts = []
+        for id in reversed(list(self.myCursor)):
+            texts.append(id)
+        if len(texts) > 0:
+            print("****************************************************")
+            print("Text Sent To " + texts[-1][3] + " From Support! Processing..")
             return texts[-1]
 
     def _searchTicket(self, text):
         String = '<queryxml><entity>Ticket</entity><query>' \
-                 '<field>Title<expression op="Contains">' + str(text[3]) + '</expression></field>' \
-                                                                           '<field>Source<expression op="equals">15</expression></field>' \
-                                                                           '<field>Status<expression op="NotEqual">5</expression></field>' \
-                                                                           '</query></queryxml>'
+                 '<field udf="true">Phone<expression op="Contains">' + str(text[3]) + '</expression></field>' \
+                 '<field>Source<expression op="equals">15</expression></field>' \
+                 '<field>Status<expression op="NotEqual">5</expression></field>' \
+                 '</query></queryxml>'
 
         searchTicketQuery = self.autotaskCient.service.query(String)
         while not searchTicketQuery['ReturnCode'] == 1:
@@ -72,7 +84,7 @@ class TicketSMS():
         print("New Ticket Created! Ticket Number : " + str(ticketNumber))
         return createdTicket
 
-    def _updateTicket(self, text, existingTicket):
+    def _updateTicket(self, text, existingTicket, status):
         TN = '<queryxml><entity>TicketNote</entity><query>' \
                      '<field>TicketID<expression op="Equals">' + str(existingTicket['id']) + '</expression></field>' \
                      '</query></queryxml>'
@@ -111,7 +123,7 @@ class TicketSMS():
         updateTicket.Description = self._get_conv(text)
         updateTicket.DueDateTime = datetime.now() + timedelta(hours=1)
         updateTicket.Source = 15
-        updateTicket.Status = 20
+        updateTicket.Status = int(status)
 
         updateTicket.ServiceLevelAgreementID = 9
 
@@ -129,13 +141,18 @@ class TicketSMS():
 
         return updatedTicket
 
-    def _createTicketNote(self, text, createdTicket):
+    def _createTicketNote(self, text, createdTicket, case):
         TickNoteArray = self.autotaskCient.factory.create('ArrayOfEntity')
         ticketNote = self.autotaskCient.factory.create('TicketNote')
         ticketNote.id = 0
 
-        ticketNote.Title = "Customer replied at: " + str(text[1])
-        ticketNote.Description = str(text[6][:3000])
+        if case == 20:
+            ticketNote.Title = "Customer replied at: " + str(text[1])
+            ticketNote.Description = str(text[6][:3000])
+        elif case == 0:
+            ticketNote.Title = "Attention! Message Sent at: " + str(text[1])
+            ticketNote.Description = "Message was NOT sent to "+str(text[3])+"!"
+
         ticketNote.TicketID = createdTicket['id']
         ticketNote.Publish = 2
         ticketNote.NoteType = 1
@@ -195,13 +212,12 @@ class TicketSMS():
                 rep = str(t[2])
 
             if 200 == t[4] or t[4]== None:
-                status = ' (Success)'
+                status = ' (Success) '
             else:
                 status = ' (Fail, Please Retry)'
 
             conv += time + " " + rep + ": " + status + msg + '\n'+ '\n'
         self.mysqlClient.commit()
-        print(conv)
         return conv
 
     def _reconnect_autotask(self):
@@ -214,28 +230,71 @@ class TicketSMS():
         self.myCursor = self.mysqlClient.cursor()
 
     def _process(self):
-        text = self._get_Text()
-        if not text is None:
-            existingTicket = self._searchTicket(text)
+        incomingText = self._get_Incoming_Text()
+        if not incomingText is None:
+            existingTicket = self._searchTicket(incomingText)
             if existingTicket is None:
                 print("Creating ticket...")
-                newTicket = self._createTicket(text)
+                newTicket = self._createTicket(incomingText)
                 print("Creating ticket note...")
-                newTicketNote = self._createTicketNote(text, newTicket)
+                newTicketNote = self._createTicketNote(incomingText, newTicket, 20)
                 print("Updating Ticket...")
-                updatedTicket = self._updateTicket(text, newTicket)
+                updatedTicket = self._updateTicket(incomingText, newTicket, 20)
                 print("Updating Database...")
-                self._updateDatabase(text, updatedTicket, newTicketNote)
-                print("Text From " + text[3] + " Processed!")
+                self._updateDatabase(incomingText, updatedTicket, newTicketNote)
+                print("Text From " + incomingText[3] + " Processed!")
             else:
                 print("Creating Ticket Note...")
-                newTicketNote = self._createTicketNote(text, existingTicket)
+                newTicketNote = self._createTicketNote(incomingText, existingTicket, 20)
                 print("Updating Ticket...")
-                updatedTicket = self._updateTicket(text, existingTicket)
+                updatedTicket = self._updateTicket(incomingText, existingTicket, 20)
                 print("Updating Database...")
-                self._updateDatabase(text, updatedTicket, newTicketNote)
-                print("Text From " + text[3] + " Processed!")
+                self._updateDatabase(incomingText, updatedTicket, newTicketNote)
+                print("Text From " + incomingText[3] + " Processed!")
+        self.mysqlClient.commit()
 
+        outgoingText = self._get_Outgoing_Text()
+        if not outgoingText is None:
+            existingTicket1 = self._searchTicket(outgoingText)
+            if existingTicket1 is None:
+                if not outgoingText[2] == 200:
+                    print("Creating ticket...")
+                    newTicket1 = self._createTicket(outgoingText)
+                    print("Message Not Sent! Creating Ticket Note...")
+                    newTicketNote1 = self._createTicketNote(outgoingText, newTicket1, 0)
+                    print("Updating Ticket...")
+                    updatedTicket1 = self._updateTicket(outgoingText, newTicket1, 20)
+                    print("Updating Database...")
+                    update_row = ("UPDATE messagelog SET TicketID = "+str(updatedTicket1['id'])+" WHERE ID = "+str(+outgoingText[0])+";")
+                    self.myCursor.execute(update_row)
+                    self.mysqlClient.commit()
+                    print("Outgoing Text To " + outgoingText[3] + " Processed!")
+                else:
+                    print("Ticket Was Closed But The Text Was Sent Anyway...*Yawning*...I Am Too Lazy For This...Let's Just Backdoor Then..")
+                    print("Updating Database...")
+                    update_row = ("UPDATE messagelog SET TicketID = 'LazyFace' WHERE ID = "+str(+outgoingText[0])+";")
+                    self.myCursor.execute(update_row)
+                    self.mysqlClient.commit()
+                    print("Outgoing Text To " + outgoingText[3] + " Processed!")
+            else:
+                if not outgoingText[2] == 200:
+                    print("Message Not Sent! Creating Ticket Note...")
+                    newTicketNote1 = self._createTicketNote(outgoingText, existingTicket1, 0)
+                    print("Updating Ticket...")
+                    updatedTicket1 = self._updateTicket(outgoingText, existingTicket1, 20)
+                    print("Updating Database...")
+                    update_row = ("UPDATE messagelog SET TicketID = "+str(updatedTicket1['id'])+" WHERE ID = "+str(+outgoingText[0])+";")
+                    self.myCursor.execute(update_row)
+                    self.mysqlClient.commit()
+                    print("Outgoing Text To " + outgoingText[3] + " Processed!")
+                else:
+                    print("Updating Ticket...")
+                    updatedTicket1 = self._updateTicket(outgoingText, existingTicket1, 7)
+                    print("Updating Database...")
+                    update_row = ("UPDATE messagelog SET TicketID = "+str(updatedTicket1['id'])+" WHERE ID = "+str(+outgoingText[0])+";")
+                    self.myCursor.execute(update_row)
+                    self.mysqlClient.commit()
+                    print("Outgoing Text To " + outgoingText[3] + " Processed!")
         self.mysqlClient.commit()
         time.sleep(10)
 
