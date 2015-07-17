@@ -148,7 +148,10 @@ class TicketSMS():
 
         if case == 20:
             ticketNote.Title = "Customer replied at: " + str(text[1])
-            ticketNote.Description = str(text[6][:3000])
+            if len(str(text[6])) > 0:
+                ticketNote.Description = str(text[6][:3000])
+            else:
+                ticketNote.Description = "Empty Message. Please Call The Customer. They May Need Assistance!"
         elif case == 0:
             ticketNote.Title = "Attention! Message Sent at: " + str(text[1])
             ticketNote.Description = "Message was NOT sent to "+str(text[3])+"!"
@@ -156,6 +159,7 @@ class TicketSMS():
         ticketNote.TicketID = createdTicket['id']
         ticketNote.Publish = 2
         ticketNote.NoteType = 1
+        
         TickNoteArray.Entity.append(ticketNote)
         createTicketNoteQuery = self.autotaskCient.service.create(TickNoteArray)
         while not createTicketNoteQuery['ReturnCode'] == 1:
